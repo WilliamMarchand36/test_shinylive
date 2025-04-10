@@ -19,6 +19,11 @@ library(scales)
 library(forcats)
 library(rnaturalearth)
 library(rnaturalearthdata)
+library(shinydashboard)
+
+
+fr_contours <- ne_countries(country = 'france', scale = "small", returnclass = 'sf')
+fr_contours_proj <- st_transform(fr_contours, 27572)
 
 data_placette <- read.csv("data_plots_2008_2022_all_v2.csv", header = TRUE)
 modalites_tauxgui <- read.csv("Modalites_TAUXGUIT.csv", header = TRUE, sep = ";")
@@ -41,8 +46,9 @@ ui <- fluidPage(
 
         # Show a plot of the generated distribution
         mainPanel(
-           plotlyOutput("distPlot"),
-           plotlyOutput("distMap")
+          fluidRow(box(plotlyOutput("distPlot")))
+          ,
+          fluidRow(box(plotOutput("distMap")))
         )
     )
 )
@@ -50,7 +56,7 @@ ui <- fluidPage(
 # Define server logic required to draw a histogram
 server <- function(input, output) {
 
-  select_data <- reactive({
+  select_data_barplot <- select_data <- reactive({
     if(input$ssp == "album"){
       subdata <- data_placette[!(data_placette$u_txguialbum %in% c("X")), c("npp", "xl", "yl", "u_txguialbum")]
       names(subdata)[4] <- "tx_gui"
@@ -68,7 +74,9 @@ server <- function(input, output) {
   })
   
     output$distPlot <- renderPlotly({
-        data <- subset(select_data(), tx_gui != "0")
+      req(input$ssp)
+      
+        data <- subset(select_data_barplot(), tx_gui != "0")
         data <- left_join(data, modalites_tauxgui, by = c("tx_gui" = "mode"))
         data$tx_gui <- as.numeric(data$tx_gui)
         data$libelle <- factor(data$libelle,
@@ -84,7 +92,10 @@ server <- function(input, output) {
         ggplotly(p)
     })
     
-    output$distMap <- renderPlotly({
+    outputOptions(output, "distPlot", priority = 10)
+    
+    output$distMap <- renderPlot({
+      
       data <- select_data()
       # data <- left_join(data, modalites_tauxgui, by = c("tx_gui" = "mode"))
       # data$tx_gui <- as.numeric(data$tx_gui)
@@ -92,11 +103,9 @@ server <- function(input, output) {
       #                        levels = unique(data$libelle[order(data$tx_gui)])
       # )
       data$is_gui <- ifelse(data$tx_gui == 0, "absent", "present")
+      data$is_gui <- factor(data$is_gui, levels = c("absent", "present"))
+      data <- data[order(data$is_gui), ]
       
-      fr_contours <- ne_countries(country = 'france', scale = "medium", returnclass = 'sf')
-      fr_contours_proj <- st_transform(fr_contours, 27572)
-      
-      # draw the histogram with the specified number of bins
       p <- ggplot(data)+
         geom_sf(aes(color = is_gui))+
         scale_color_manual(name = "mistletoe", values = c("absent" = "grey75", "present" = "orangered"))+
@@ -104,8 +113,7 @@ server <- function(input, output) {
         coord_sf(xlim = c(75100, 1194200), ylim = c(1621600, 2671600))+
         theme_minimal()+
         theme(axis.text = element_blank())
-      
-      ggplotly(p)
+      p
     })
 }
 
